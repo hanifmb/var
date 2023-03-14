@@ -12,6 +12,10 @@
 using namespace alglib;
 
 float h2, h3, h5, h6, h8;
+std::vector<cv::Point2f> circle_img_norm;
+
+cv::Point2f pt(-1, -1);
+bool new_coords = false;
 
 cv::Mat calcHomography(const std::vector<cv::Point2f>& points_map, const std::vector<cv::Point2f>& points_image)
 {
@@ -92,19 +96,16 @@ void normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points, std::vect
 void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
 {
 
-    const float xx[7]={1.278, 1.16, 0.694, 0.224, -0.496, 0.326, -0.418};
-    const float yy[7]={0.362, 0.298, 0.544, 0.562, 0.34, 0.222, 0.492};
 
     for (int i=0; i<7; i++)
     {
-
 
         float alpha = x[0];
         float beta = x[1];
         float gamma = x[2];
 
-        float u2 = xx[i];
-        float v2 = yy[i];
+        float u2 = circle_img_norm[i].x;
+        float v2 = circle_img_norm[i].y;
 
         float D1 = h5 - h8 * h6;
         float D4 = h8 * h3 - h2;
@@ -133,14 +134,14 @@ void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
         float D = D1 * u2 + D4 * v2 + D7;
         float R = 9.15;
 
-        /* float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float d = sqrt(u1 * u1 + v1 * v1) - R; */
+        float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma);
+        float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma);
+        float d = sqrt(u1 * u1 + v1 * v1) - R;
 
-        float u1 = D;
-        float v1 = A2 * alpha + B2 * beta + C2 * gamma;
-        float denominator = A3 * alpha + B3 * beta + C3 * gamma;
-        float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2);
+        /* float u1 = D; */
+        /* float v1 = A2 * alpha + B2 * beta + C2 * gamma; */
+        /* float denominator = A3 * alpha + B3 * beta + C3 * gamma; */
+        /* float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2); */
 
         fi[i] = d;
     }
@@ -205,27 +206,98 @@ void transformPoint(const cv::Point2f& input, cv::Point2f& output, const cv::Mat
     output = cv::Point2f(newX, newY);
 }
 
+void mouse_callback(int  event, int  x, int  y, int  flag, void *param)
+{
+    if (event == cv::EVENT_LBUTTONDOWN)
+    {
+        pt.x = x;
+        pt.y = y;
+        new_coords = true;
+    }
+}
+
+/* void getPoints(const cv::Mat& input_img, std::vector<cv::Point2f>& line_img, std::vector<cv::Point2f>& circle_img) */
+/* { */
+     
+/* } */
+
+void draw_line(cv::Point pt1, cv::Point pt2, cv::Mat image, cv::Scalar line_color){
+    
+       //Scalar line_Color(0, 0, 255);
+       int thickness = 2;
+       cv::line(image, pt1, pt2, line_color, thickness);
+}
+
 int main(int argc, char **argv)
 {
+
+    cv::Mat img = cv::imread("image.png", cv::IMREAD_COLOR);
+    cv::namedWindow("image", cv::WINDOW_NORMAL);
+
+    cv::setMouseCallback("image", mouse_callback);
+    
+    std::vector<cv::Point2f> circle_img;
+    std::vector<cv::Point2f> line_img;
+
+    int count = 0;
+    char key = 0;
+    while ((int)key != 27) {
+
+        if(new_coords){
+            draw_cross(pt, img, 15);
+            if(count < 3){
+                line_img.emplace_back(cv::Point2f(pt.x, pt.y));
+                std::cout << "line_img " << pt.x << " " << pt.y << "\n";
+            }
+            else if (count < 10){
+                circle_img.emplace_back(cv::Point2f(pt.x, pt.y));
+                std::cout << "circle_img " << pt.x << " " << pt.y << "\n";
+            }
+            new_coords = false;
+
+            if(count==9) break;
+
+            count++;
+        }
+
+        imshow("image", img);
+        key = cv::waitKey(1);
+    }
+
+    std::vector<cv::Point2f> line_img_norm;
+    normalizeWithSyntheticCam(circle_img, circle_img_norm);
+    normalizeWithSyntheticCam(line_img, line_img_norm);
+
+    /* float circle_img_x[7] = {1239, 1180, 947, 712, 352, 763, 391}; */
+    /* float circle_img_y[7] = {581, 549, 672, 681, 570, 511, 646}; */
+
+    /* std::vector<cv::Point2f> circle_img; */
+    /* for (int i = 0; i < 7; ++i) */
+    /* { */
+    /*     circle_img.emplace_back(cv::Point2f(circle_img_x[i], circle_img_y[i])); */
+    /* } */
+    
+    /* normalizeWithSyntheticCam(circle_img, circle_img_norm); */
+
     float r = 9.15;
     float line_map_x[3]={0, 0, 0};
     float line_map_y[3]={-1*r, 0, 1*r};
 
-    float line_img_x[3]={1011, 790, 510};
-    float line_img_y[3]={521, 583, 668};
+    /* float line_img_x[3]={1011, 790, 510}; */
+    /* float line_img_y[3]={521, 583, 668}; */
 
-    float line_img_x_norm[3] = {0.822, 0.380, -0.18};
-    float line_img_y_norm[3] = {0.242, 0.366, 0.536};
-
-    std::vector<cv::Point2f> line_img;
+    /* std::vector<cv::Point2f> line_img; */
     std::vector<cv::Point2f> line_map;
     for(int i = 0; i < 3; ++i) 
     {
-        line_img.emplace_back(cv::Point2f(line_img_x_norm[i], line_img_y_norm[i]));
+        /* line_img.emplace_back(cv::Point2f(line_img_x[i], line_img_y[i])); */
         line_map.emplace_back(cv::Point2f(line_map_x[i], line_map_y[i]));
     }
 
-    cv::Mat H = calcHomography(line_map, line_img);
+    /* std::vector<cv::Point2f> line_img_norm; */
+    /* normalizeWithSyntheticCam(line_img, line_img_norm); */
+
+    cv::Mat H = calcHomography(line_map, line_img_norm);
 
     h2=H.at<float>(0, 1);
     h3=H.at<float>(0, 2);
@@ -233,7 +305,7 @@ int main(int argc, char **argv)
     h6=H.at<float>(1, 2);
     h8=H.at<float>(2, 1);
 
-    real_1d_array x = "[0.001,0.001,0.001]";
+    real_1d_array x = "[0.0001,0.0001,0.0001]";
     /* real_1d_array x = "[0.0,0.0,0.0]"; */
     real_1d_array s = "[1,1,1]";
 
@@ -290,8 +362,6 @@ int main(int argc, char **argv)
         points_map.emplace_back(cv::Point2f(x, y));
     }
 
-    cv::Mat img = cv::imread("image.png", cv::IMREAD_COLOR);
-    cv::namedWindow("image", cv::WINDOW_NORMAL);
 
     for(auto & e: points_map){
         cv::Point2f output;
@@ -299,7 +369,21 @@ int main(int argc, char **argv)
         draw_cross(output, img, 3);
     }
 
-    cv::imshow("image", img);
-    cv::waitKey(0);
+    while ((int)key != 27) {
+        if(new_coords){
+            cv::Point2f line_a;
+            cv::Point2f line_b;
+            cv::Point2f transformed_pt;
+
+            transformPoint(pt, transformed_pt, ans, true);
+            transformPoint(cv::Point2f(transformed_pt.x, 40), line_a, inv_final_H, true);
+            transformPoint(cv::Point2f(transformed_pt.x, -40), line_b, inv_final_H, true);
+
+            draw_line(line_a, line_b, img, cv::Scalar(0, 0, 255));
+            new_coords = false;
+        }
+        imshow("image", img);
+        key = cv::waitKey(1);
+    }
     return 0;
 }
