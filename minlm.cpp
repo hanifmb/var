@@ -383,6 +383,7 @@ int main(int argc, char **argv)
     minlmreport rep;
     minlmresults(state, x, rep);
     printf("%s\n", x.tostring(8).c_str()); 
+    std::cout << "rep " << rep.iterationscount << "\n";
 
     /* float H_data[9] = {500, 0, 600, 0, 500, 400, 0, 0, 1}; */
     /* cv::Mat H = cv::Mat(3, 3, CV_32F, H_data); */
