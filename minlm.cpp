@@ -96,6 +96,59 @@ void normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points, std::vect
 void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
 {
 
+    for (int i=0; i<7; i++)
+    {
+
+        float alpha = x[0];
+        float beta = x[1];
+        float gamma = x[2];
+
+        float u2 = circle_img_norm[i].x;
+        float v2 = circle_img_norm[i].y;
+
+        float D1 = h5 - h8 * h6;
+        float D4 = h8 * h3 - h2;
+        float D7 = h2 * h6 - h5 * h3;
+        
+        float a5 = 1;
+        float a6 = -h8;
+        float a8 = -h6;
+        float a9 = h5;
+        float b2 = -1;
+        float b3 = h8;
+        float b8 = h3;
+        float b9 = -h2;
+        float c2 = h6;
+        float c3 = -h5;
+        float c5 = -h3;
+        float c6 = h2;
+
+        float A2 = a5 * v2 + a8;
+        float A3 = a6 * v2 + a9;
+        float B2 = b2 * u2 + b8;
+        float B3 = b3 * u2 + b9;
+        float C2 = c2 * u2 + c5 * v2;
+        float C3 = c3 * u2 + c6 * v2;
+        
+        float D = D1 * u2 + D4 * v2 + D7;
+        float R = 9.15;
+
+        /* float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma); */
+        /* float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma); */
+        /* float d = sqrt(u1 * u1 + v1 * v1) - R; */
+
+        float u1 = D;
+        float v1 = A2 * alpha + B2 * beta + C2 * gamma;
+        float denominator = A3 * alpha + B3 * beta + C3 * gamma;
+        float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2);
+
+        fi[i] = d;
+
+    }
+}
+
+void  function1_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
+{
 
     for (int i=0; i<7; i++)
     {
@@ -134,17 +187,23 @@ void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
         float D = D1 * u2 + D4 * v2 + D7;
         float R = 9.15;
 
-        float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma);
-        float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma);
-        float d = sqrt(u1 * u1 + v1 * v1) - R;
+        /* float denominator = (A3 * alpha + B3 * beta + C3 * gamma); */
+        /* float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma); */
+        /* float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma); */
+        /* float d = sqrt(u1 * u1 + v1 * v1) - R; */
 
-        /* float u1 = D; */
-        /* float v1 = A2 * alpha + B2 * beta + C2 * gamma; */
-        /* float denominator = A3 * alpha + B3 * beta + C3 * gamma; */
-        /* float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2); */
+        float u1 = D;
+        float v1 = A2 * alpha + B2 * beta + C2 * gamma;
+        float denominator = A3 * alpha + B3 * beta + C3 * gamma;
+        float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2);
 
         fi[i] = d;
+
+        jac[i][0] = 2 * v1 * A2 - (R * R * 2 * denominator * A3);
+        jac[i][1] = 2 * v1 * B2 - (R * R * 2 * denominator * B3);
+        jac[i][2] = 2 * v1 * C2 - (R * R * 2 * denominator * C3);
     }
+
 }
 
 cv::Mat getH(float alpha, float beta, float gamma,
@@ -312,14 +371,16 @@ int main(int argc, char **argv)
     double epsx = 0;
     ae_int_t maxits = 0;
     minlmstate state;
-    minlmreport rep;
 
-    minlmcreatev(3, 7, x, 0.0001, state);
+    minlmcreatevj(3, 7, x, state);
     minlmsetcond(state, epsx, maxits);
     minlmsetscale(state, s);
 
-    alglib::minlmoptimize(state, function1_fvec);
+    minlmoptguardgradient(state, 0.001);
 
+    alglib::minlmoptimize(state, function1_fvec, function1_jac);
+
+    minlmreport rep;
     minlmresults(state, x, rep);
     printf("%s\n", x.tostring(8).c_str()); 
 
