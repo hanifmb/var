@@ -1,21 +1,130 @@
-#include "stdafx.h"
+#include <iostream>
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#include "optimization.h"
+
+#include <Eigen/Dense>
+#include <Eigen/Sparse>
+#include <unsupported/Eigen/NonLinearOptimization>
 
 #include "opencv2/core.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 #include "opencv2/calib3d.hpp"
 
-using namespace alglib;
+using namespace Eigen;
 
-float h2, h3, h5, h6, h8;
 std::vector<cv::Point2f> circle_img_norm;
 
 cv::Point2f pt(-1, -1);
 bool new_coords = false;
+
+typedef std::vector<Eigen::Vector2d,Eigen::aligned_allocator<Eigen::Vector2d> > Point2DVector;
+
+// Generic functor
+template<typename _Scalar, int NX=Eigen::Dynamic, int NY=Eigen::Dynamic>
+struct Functor
+{
+  typedef _Scalar Scalar;
+  enum {
+    InputsAtCompileTime = NX,
+    ValuesAtCompileTime = NY
+  };
+  typedef Eigen::Matrix<Scalar,InputsAtCompileTime,1> InputType;
+  typedef Eigen::Matrix<Scalar,ValuesAtCompileTime,1> ValueType;
+  typedef Eigen::Matrix<Scalar,ValuesAtCompileTime,InputsAtCompileTime> JacobianType;
+
+  const int m_inputs, m_values;
+
+  Functor() : m_inputs(InputsAtCompileTime), m_values(ValuesAtCompileTime) {}
+  Functor(int inputs, int values) : m_inputs(inputs), m_values(values) {}
+
+  int inputs() const { return m_inputs; }
+  int values() const { return m_values; }
+};
+
+struct lmder_functor : Functor<double>
+{
+    lmder_functor(void): Functor<double>(3,7) {}
+
+    Point2DVector Points;
+    float h2, h3, h5, h6, h8;
+
+    int operator()(const VectorXd &x, VectorXd &fvec) const
+    {
+
+        assert(x.size()==3);
+        assert(fvec.size()==7);
+
+        for (int i = 0; i < 7; i++)
+        {
+            float alpha = x[0];
+            float beta = x[1];
+            float gamma = x[2];
+
+            float u2 = circle_img_norm[i].x;
+            float v2 = circle_img_norm[i].y;
+
+            float D1 = h5 - h8 * h6;
+            float D4 = h8 * h3 - h2;
+            float D7 = h2 * h6 - h5 * h3;
+            
+            float A2 = v2 - h6;
+            float A3 = -h8 * v2 + h5;
+            float B2 = -u2 + h3;
+            float B3 = h8 * u2 - h2;
+            float C2 = h6 * u2 - h3 * v2;
+            float C3 = -h5 * u2 + h2 * v2;
+            
+            float R = 9.15;
+
+            float D = D1 * u2 + D4 * v2 + D7;
+            float E = A2 * alpha + B2 * beta + C2 * gamma;
+            float denominator = A3 * alpha + B3 * beta + C3 * gamma;
+            
+            /* minimizing the sum of square D^2 + E^2 - R^2 * denominator^2, denominator != 0*/
+            fvec(i) = pow(D, 2) + pow(E, 2) - pow((R * denominator), 2);
+
+        }
+        return 0;
+    }
+
+    int df(const VectorXd &x, MatrixXd &fjac) const
+    {
+        for (int i = 0; i < 7; i++)
+        {
+            float alpha = x[0];
+            float beta = x[1];
+            float gamma = x[2];
+
+            float u2 = circle_img_norm[i].x;
+            float v2 = circle_img_norm[i].y;
+
+            float D1 = h5 - h8 * h6;
+            float D4 = h8 * h3 - h2;
+            float D7 = h2 * h6 - h5 * h3;
+            
+            float A2 = v2 - h6;
+            float A3 = -h8 * v2 + h5;
+            float B2 = -u2 + h3;
+            float B3 = h8 * u2 - h2;
+            float C2 = h6 * u2 - h3 * v2;
+            float C3 = -h5 * u2 + h2 * v2;
+            
+            float R = 9.15;
+
+            float D = D1 * u2 + D4 * v2 + D7;
+            float E = A2 * alpha + B2 * beta + C2 * gamma;
+            float denominator = A3 * alpha + B3 * beta + C3 * gamma;
+
+            /* constructing m * n jacobian matrix of the objective function */
+            fjac(i,0) = 2 * E * A2 - (R * R * 2 * denominator * A3);
+            fjac(i,1) = 2 * E * B2 - (R * R * 2 * denominator * B3);
+            fjac(i,2) = 2 * E * C2 - (R * R * 2 * denominator * C3);
+        }
+        return 0;
+    }
+};
 
 cv::Mat calcHomography(const std::vector<cv::Point2f>& points_map, const std::vector<cv::Point2f>& points_image)
 {
@@ -91,119 +200,6 @@ void normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points, std::vect
 
         normalized_points.emplace_back(cv::Point2f(newX, newY));
     }
-}
-
-void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
-{
-
-    for (int i=0; i<7; i++)
-    {
-
-        float alpha = x[0];
-        float beta = x[1];
-        float gamma = x[2];
-
-        float u2 = circle_img_norm[i].x;
-        float v2 = circle_img_norm[i].y;
-
-        float D1 = h5 - h8 * h6;
-        float D4 = h8 * h3 - h2;
-        float D7 = h2 * h6 - h5 * h3;
-        
-        float a5 = 1;
-        float a6 = -h8;
-        float a8 = -h6;
-        float a9 = h5;
-        float b2 = -1;
-        float b3 = h8;
-        float b8 = h3;
-        float b9 = -h2;
-        float c2 = h6;
-        float c3 = -h5;
-        float c5 = -h3;
-        float c6 = h2;
-
-        float A2 = a5 * v2 + a8;
-        float A3 = a6 * v2 + a9;
-        float B2 = b2 * u2 + b8;
-        float B3 = b3 * u2 + b9;
-        float C2 = c2 * u2 + c5 * v2;
-        float C3 = c3 * u2 + c6 * v2;
-        
-        float D = D1 * u2 + D4 * v2 + D7;
-        float R = 9.15;
-
-        /* float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float d = sqrt(u1 * u1 + v1 * v1) - R; */
-
-        float u1 = D;
-        float v1 = A2 * alpha + B2 * beta + C2 * gamma;
-        float denominator = A3 * alpha + B3 * beta + C3 * gamma;
-        float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2);
-
-        fi[i] = d;
-
-    }
-}
-
-void  function1_jac(const real_1d_array &x, real_1d_array &fi, real_2d_array &jac, void *ptr)
-{
-
-    for (int i=0; i<7; i++)
-    {
-
-        float alpha = x[0];
-        float beta = x[1];
-        float gamma = x[2];
-
-        float u2 = circle_img_norm[i].x;
-        float v2 = circle_img_norm[i].y;
-
-        float D1 = h5 - h8 * h6;
-        float D4 = h8 * h3 - h2;
-        float D7 = h2 * h6 - h5 * h3;
-        
-        float a5 = 1;
-        float a6 = -h8;
-        float a8 = -h6;
-        float a9 = h5;
-        float b2 = -1;
-        float b3 = h8;
-        float b8 = h3;
-        float b9 = -h2;
-        float c2 = h6;
-        float c3 = -h5;
-        float c5 = -h3;
-        float c6 = h2;
-
-        float A2 = a5 * v2 + a8;
-        float A3 = a6 * v2 + a9;
-        float B2 = b2 * u2 + b8;
-        float B3 = b3 * u2 + b9;
-        float C2 = c2 * u2 + c5 * v2;
-        float C3 = c3 * u2 + c6 * v2;
-        
-        float D = D1 * u2 + D4 * v2 + D7;
-        float R = 9.15;
-
-        /* float denominator = (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float u1 = D / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float v1 = (A2 * alpha + B2 * beta + C2 * gamma) / (A3 * alpha + B3 * beta + C3 * gamma); */
-        /* float d = sqrt(u1 * u1 + v1 * v1) - R; */
-
-        float u1 = D;
-        float v1 = A2 * alpha + B2 * beta + C2 * gamma;
-        float denominator = A3 * alpha + B3 * beta + C3 * gamma;
-        float d = pow(u1, 2) + pow(v1, 2) - pow( (R * denominator), 2);
-
-        fi[i] = d;
-
-        jac[i][0] = 2 * v1 * A2 - (R * R * 2 * denominator * A3);
-        jac[i][1] = 2 * v1 * B2 - (R * R * 2 * denominator * B3);
-        jac[i][2] = 2 * v1 * C2 - (R * R * 2 * denominator * C3);
-    }
-
 }
 
 cv::Mat getH(float alpha, float beta, float gamma,
@@ -358,50 +354,47 @@ int main(int argc, char **argv)
 
     cv::Mat H = calcHomography(line_map, line_img_norm);
 
-    h2=H.at<float>(0, 1);
-    h3=H.at<float>(0, 2);
-    h5=H.at<float>(1, 1);
-    h6=H.at<float>(1, 2);
-    h8=H.at<float>(2, 1);
+    //start levenberg
+    const int m=7, n=3;
+    int info;
+    double fnorm, covfac;
+    VectorXd x;
 
-    real_1d_array x = "[0.0001,0.0001,0.0001]";
-    /* real_1d_array x = "[0.0,0.0,0.0]"; */
-    real_1d_array s = "[1,1,1]";
+    x.setConstant(n, .1);
 
-    double epsx = 0;
-    ae_int_t maxits = 0;
-    minlmstate state;
+    // do the computation
+    lmder_functor functor;
 
-    minlmcreatevj(3, 7, x, state);
-    minlmsetcond(state, epsx, maxits);
-    minlmsetscale(state, s);
+    functor.h2=H.at<float>(0, 1);
+    functor.h3=H.at<float>(0, 2);
+    functor.h5=H.at<float>(1, 1);
+    functor.h6=H.at<float>(1, 2);
+    functor.h8=H.at<float>(2, 1);
 
-    minlmoptguardgradient(state, 0.001);
+    LevenbergMarquardt<lmder_functor> lm(functor);
 
-    alglib::minlmoptimize(state, function1_fvec, function1_jac);
+    Eigen::LevenbergMarquardtSpace::Status status = lm.minimizeInit(x);
+    float prev_norm = lm.fnorm;
+    printf("iter:%ld fnorm: %e\n", lm.iter, lm.fnorm);
 
-    minlmreport rep;
-    minlmresults(state, x, rep);
-    printf("%s\n", x.tostring(8).c_str()); 
-    std::cout << "rep " << rep.iterationscount << "\n";
+    if (status==Eigen::LevenbergMarquardtSpace::Status::ImproperInputParameters)
+        return status;
+    do {
+        status = lm.minimizeOneStep(x);
 
-    /* float H_data[9] = {500, 0, 600, 0, 500, 400, 0, 0, 1}; */
-    /* cv::Mat H = cv::Mat(3, 3, CV_32F, H_data); */
-    /* H.at<float>(0, 0) = x[0]; */
-    /* H.at<float>(1, 0) = x[1]; */
-    /* H.at<float>(2, 0) = x[2]; */
+        float diff_norm = lm.fnorm-prev_norm;
+        prev_norm = lm.fnorm;
 
-    float alpha = x[0];
-    float beta = x[1];
-    float gamma = x[2];
+        printf("iter:%ld; x: [%f, %f, %f]; fnorm: %e; diff: %e; xtol: %e; s: %d\n", lm.iter, x(0), x(1), x(2), lm.fnorm, diff_norm, lm.parameters.xtol, status);
+    } while (status==Eigen::LevenbergMarquardtSpace::Status::Running);
+    float alpha = x(0);
+    float beta = x(1);
+    float gamma = x(2);
 
     float K_data[9] = { 500, 0, 600, 0, 500, 400, 0, 0, 1 };
     cv::Mat K = cv::Mat(3, 3, CV_32F, K_data);
 
-    /* cv::Mat_<float> K(3,3); // rows, cols */
-    /* K << 500, 0, 600, 0, 500, 400, 0, 0, 1; */
-
-    cv::Mat final_H = getH(alpha, beta, gamma, h2, h3, h5, h6, h8);
+    cv::Mat final_H = getH(alpha, beta, gamma, functor.h2, functor.h3, functor.h5, functor.h6, functor.h8);
 
     cv::Mat ans = final_H * K.inv();
     cv::Mat inv_final_H = ans.inv();
