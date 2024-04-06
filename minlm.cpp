@@ -68,11 +68,12 @@ cv::Mat calcHomography(const std::vector<cv::Point2f>& points_map, const std::ve
     return H;
 }
 
-void normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points, std::vector<cv::Point2f>& normalized_points){
+std::vector<cv::Point2f> normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points){
     
     float H_data[9] = {500, 0, 600, 0, 500, 400, 0, 0, 1};
     cv::Mat H = cv::Mat(3, 3, CV_32F, H_data);
     
+    std::vector<cv::Point2f> normalized_pts;
     for(auto & e: points){
 
         cv::Mat pt(3, 1, CV_32FC1);
@@ -85,8 +86,9 @@ void normalizeWithSyntheticCam(const std::vector<cv::Point2f>& points, std::vect
         float newX = (ptTransformed.at<float>(0, 0));
         float newY = (ptTransformed.at<float>(1, 0));
 
-        normalized_points.emplace_back(cv::Point2f(newX, newY));
+        normalized_pts.emplace_back(cv::Point2f(newX, newY));
     }
+    return normalized_pts;
 }
 
 void  function1_fvec(const real_1d_array &x, real_1d_array &fi, void *ptr)
@@ -211,57 +213,68 @@ void draw_line(cv::Point pt1, cv::Point pt2, cv::Mat image, cv::Scalar line_colo
        cv::line(image, pt1, pt2, line_color, thickness);
 }
 
-int main(int argc, char **argv)
-{
+struct ImagePts{
+    std::vector<cv::Point2f> circle_pts;
+    std::vector<cv::Point2f> line_pts;
+};
 
-    cv::Mat img = cv::imread("image.png", cv::IMREAD_COLOR);
-    cv::namedWindow("image", cv::WINDOW_NORMAL);
-
-    cv::setMouseCallback("image", mouse_callback);
-    
-    std::vector<cv::Point2f> circle_img;
-    std::vector<cv::Point2f> line_img;
+ImagePts waitPoints(cv::Mat img){
 
     int count = 0;
     char key = 0;
+    ImagePts image_pts;
     while ((int)key != 27) {
 
         if(new_coords){
             draw_cross(pt, img, 15);
-            if(count < 3){
-                line_img.emplace_back(cv::Point2f(pt.x, pt.y));
+            int num_line_pts = 3;
+            int num_circle_pts = 7;
+
+            if(count < num_line_pts){
+                image_pts.line_pts.emplace_back(cv::Point2f(pt.x, pt.y));
                 std::cout << "line_img " << pt.x << " " << pt.y << "\n";
             }
-            else if (count < 10){
-                circle_img.emplace_back(cv::Point2f(pt.x, pt.y));
+            else{
+                image_pts.circle_pts.emplace_back(cv::Point2f(pt.x, pt.y));
                 std::cout << "circle_img " << pt.x << " " << pt.y << "\n";
             }
+
             new_coords = false;
-
-            if(count==9) break;
-
-            count++;
+            if(count==num_line_pts + num_circle_pts - 1) break;
+            ++count;
         }
 
-        imshow("image", img);
+        cv::imshow("image", img);
         key = cv::waitKey(1);
     }
 
-    std::vector<cv::Point2f> line_img_norm;
-    normalizeWithSyntheticCam(circle_img, circle_img_norm);
-    normalizeWithSyntheticCam(line_img, line_img_norm);
+    return image_pts;
+}
 
-    float r = 9.15;
-    float line_map_x[3]={0, 0, 0};
-    float line_map_y[3]={-1*r, 0, 1*r};
+int main(int argc, char **argv)
+{
+    const std::string img_file = "image.png";
+    const std::string window_name = "image";
 
-    /* std::vector<cv::Point2f> line_img; */
-    std::vector<cv::Point2f> line_map;
-    for(int i = 0; i < 3; ++i) 
-    {
-        line_map.emplace_back(cv::Point2f(line_map_x[i], line_map_y[i]));
+    cv::Mat img = cv::imread(img_file, cv::IMREAD_COLOR);
+    if (img.empty()) {
+        std::cerr << "Error: Image file is empty." << std::endl;
+        return -1;
     }
 
+    cv::namedWindow(window_name, cv::WINDOW_NORMAL);
+    cv::setMouseCallback(window_name, mouse_callback);
+    
+    // blocking function to wait for user to select points
+    ImagePts image_pts = waitPoints(img);
+
+    circle_img_norm = normalizeWithSyntheticCam(image_pts.circle_pts);
+    std::vector<cv::Point2f> line_img_norm = normalizeWithSyntheticCam(image_pts.line_pts);
+
+    float r = 9.15;
+    std::vector<cv::Point2f> line_map = {cv::Point2f(0, -r), cv::Point2f(0, 0), cv::Point2f(0, r)};
+
+    // calculating six elements (partial) of homography matrix
     cv::Mat H = calcHomography(line_map, line_img_norm);
 
     h2=H.at<float>(0, 1);
@@ -270,6 +283,7 @@ int main(int argc, char **argv)
     h6=H.at<float>(1, 2);
     h8=H.at<float>(2, 1);
 
+    // setting up the optimiziation parameters including inital guess x
     real_1d_array x = "[0.0001,0.0001,0.0001]";
     real_1d_array s = "[1,1,1]";
 
@@ -282,32 +296,27 @@ int main(int argc, char **argv)
     minlmsetcond(state, epsx, maxits);
     minlmsetscale(state, s);
 
+    // performing optimization with levenberg-marquardt (lm)
     alglib::minlmoptimize(state, function1_fvec);
 
     minlmresults(state, x, rep);
     printf("%s\n", x.tostring(8).c_str()); 
     std::cout << "iter "<< rep.iterationscount;
 
+    // calculating the final homography matrix
     float alpha = x[0];
     float beta = x[1];
     float gamma = x[2];
 
-    float K_data[9] = { 500, 0, 600, 0, 500, 400, 0, 0, 1 };
-
-    cv::Mat K = cv::Mat(3, 3, CV_32F, K_data);
+    cv::Mat K = (cv::Mat_<float>(3, 3) << 500, 0, 600, 0, 500, 400, 0, 0, 1);
     cv::Mat final_H = getH(alpha, beta, gamma, h2, h3, h5, h6, h8);
     cv::Mat ans = final_H * K.inv();
     cv::Mat inv_final_H = ans.inv();
 
     std::cout << inv_final_H << "\n";
 
-    /* generate points */
+    // generating unit cirlce for the map 
     std::vector<cv::Point2f> points_map;
-    points_map.emplace_back(cv::Point2f(0, -1*r));
-    points_map.emplace_back(cv::Point2f(0, 0));
-    points_map.emplace_back(cv::Point2f(0, 1*r));
-    
-    /* generating unit cirlce for the map */
     for(int i = 1; i < 360; i++){
         float angle = static_cast<float>(i) * 3.14159 / 180.0;
         float x = r * cos(angle);
@@ -316,12 +325,15 @@ int main(int argc, char **argv)
     }
 
 
+    // drawing the transformed unit circle as an ellipse
     for(auto & e: points_map){
         cv::Point2f output;
         transformPoint(e, output, inv_final_H, true);
         draw_cross(output, img, 3);
     }
 
+    // drawing the offside line
+    int key = 0; 
     while ((int)key != 27) {
         if(new_coords){
             cv::Point2f line_a;
@@ -335,8 +347,8 @@ int main(int argc, char **argv)
             draw_line(line_a, line_b, img, cv::Scalar(0, 0, 255));
             new_coords = false;
         }
-        imshow("image", img);
+        cv::imshow("image", img);
         key = cv::waitKey(1);
-    }
+     }
     return 0;
 }
