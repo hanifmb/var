@@ -3,31 +3,32 @@
 
 class hsolver {
 
-
 public:
+  struct ImagePts {
+    std::vector<cv::Point2f> circle_pts;
+    std::vector<cv::Point2f> line_pts;
+  };
 
-    struct Point2f{
-        float x, y;
-        Point2f(float in_x, float in_y): x(in_x), y(in_y){}
-    };
+  struct OptimizationInput {
+    std::vector<cv::Point2f> circle_img_norm;
+    std::vector<float> partialh;
+  };
 
-    struct ImagePts{
-        std::vector<Point2f> circle_pts;
-        std::vector<Point2f> line_pts;
-    };
-
-    struct OptimizationInput{
-        std::vector<Point2f> circle_img_norm;
-        cv::Mat partial_homography; 
-    };
-
-    static cv::Mat calc_h(const ImagePts& image_pts);
+  static cv::Mat calc_h(const ImagePts &image_pts);
 
 private:
-    hsolver(); 
+  hsolver();
 
-    static void obj_fun(const alglib::real_1d_array &x, alglib::real_1d_array &fi, void *ptr);
-    static std::vector<Point2f> normalize_pts(const std::vector<Point2f> & points);
-    static cv::Mat calc_partialh(const std::vector<Point2f>& points_map, const std::vector<Point2f>& points_image);
-    static cv::Mat getH(float alpha, float beta, float gamma, float h2, float h3, float h5, float h6, float h8);
+  static void obj_fun(const alglib::real_1d_array &x, alglib::real_1d_array &fi,
+                      void *ptr);
+
+  static std::vector<cv::Point2f>
+  normalize_pts(const std::vector<cv::Point2f> &points);
+  static std::vector<float>
+  calc_partialh(const std::vector<cv::Point2f> &points_map,
+                const std::vector<cv::Point2f> &points_image);
+
+  static cv::Mat construct_h(const float &alpha, const float &beta,
+                             const float &gamma,
+                             const std::vector<float> &partialh);
 };
